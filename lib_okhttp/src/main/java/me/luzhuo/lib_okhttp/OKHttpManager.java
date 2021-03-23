@@ -16,7 +16,12 @@ package me.luzhuo.lib_okhttp;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.text.TextUtils;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.KeyManagementException;
@@ -26,9 +31,11 @@ import java.util.concurrent.TimeUnit;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLSession;
 
+import me.luzhuo.lib_file.FileManager;
 import me.luzhuo.lib_okhttp.bean.PostType;
 import me.luzhuo.lib_okhttp.callback.IBitmapCallback;
 import me.luzhuo.lib_okhttp.callback.IContentCallback;
+import me.luzhuo.lib_okhttp.callback.IFileCallback;
 import me.luzhuo.lib_okhttp.exception.NetErrorException;
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -46,7 +53,7 @@ import okhttp3.Response;
  * @Copyright: Copyright 2020 Luzhuo. All rights reserved.
  **/
 public class OKHttpManager implements IOKHttpManager{
-    private OkHttpClient client;
+    protected OkHttpClient client;
 
     public OkHttpClient getClient() {
         return client;
@@ -117,6 +124,8 @@ public class OKHttpManager implements IOKHttpManager{
     }
 
     public String get(String url) throws IOException, NetErrorException {
+        if (TextUtils.isEmpty(url)) return "";
+
         Request request = getRequest(url);
         Response response = client.newCall(request).execute();
         if(response.isSuccessful()) return response.body().string();
@@ -129,7 +138,12 @@ public class OKHttpManager implements IOKHttpManager{
      * @param url
      * @param callback
      */
-    public void get(String url, final IContentCallback callback){
+    public void get(String url, final IContentCallback callback) {
+        if (TextUtils.isEmpty(url)) {
+            callback.onError(-1, "url 为空");
+            return;
+        }
+
         Request request = getRequest(url);
 
         client.newCall(request).enqueue(new Callback() {
@@ -140,13 +154,10 @@ public class OKHttpManager implements IOKHttpManager{
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
-                if(response.isSuccessful()) { // [200,300)
+                if (response.isSuccessful()/* [200,300) */ || response.isRedirect()/* 302 */) {
                     String message = response.body().string();
                     callback.onSuccess(response.code(), message);
-                }else if(response.isRedirect()){ // 302
-                    String message = response.body().string();
-                    callback.onSuccess(response.code(), message);
-                }else{
+                } else {
                     callback.onError(response.code(), response.body().string());
                 }
             }
@@ -154,6 +165,11 @@ public class OKHttpManager implements IOKHttpManager{
     }
 
     public void getBitmap(String url, final IBitmapCallback callback){
+        if (TextUtils.isEmpty(url)) {
+            callback.onError(-1, "url 路径为空");
+            return;
+        }
+
         Request request = getRequest(url);
 
         client.newCall(request).enqueue(new Callback() {
@@ -164,16 +180,101 @@ public class OKHttpManager implements IOKHttpManager{
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
-                if(response.isSuccessful()) { // [200,300)
+                if (response.isSuccessful()/* [200,300) */ || response.isRedirect()/* 302 */) {
                     InputStream inputStream = response.body().byteStream();
                     Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
                     callback.onSuccess(response.code(), bitmap);
-                }else if(response.isRedirect()){ // 302
-                    InputStream inputStream = response.body().byteStream();
-                    Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-                    callback.onSuccess(response.code(), bitmap);
-                }else{
+                } else {
                     callback.onError(response.code(), response.body().string());
+                }
+            }
+        });
+    }
+
+    /**
+     * 下载图片 (同步下载)
+     */
+    public Bitmap getBitmap(String url) throws IOException, NetErrorException {
+        if (TextUtils.isEmpty(url)) return null;
+
+        Request request = this.getRequest(url);
+        Response response = this.client.newCall(request).execute();
+        if (response.isSuccessful() || response.isRedirect()) {
+            InputStream inputStream = response.body().byteStream();
+            Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+            return bitmap;
+        } else {
+            throw new NetErrorException(response.code());
+        }
+    }
+
+    /**
+     * 下载文件 (同步下载)
+     */
+    public File downloadFile(String url, File localFile) throws IOException, NetErrorException {
+        if (TextUtils.isEmpty(url) || localFile == null) return localFile;
+
+        Request request = this.getRequest(url);
+        Response response = this.client.newCall(request).execute();
+
+        if (response.isSuccessful() || response.isRedirect()) {
+
+            if (!localFile.getParentFile().exists()) { localFile.getParentFile().mkdirs(); }
+            if (!localFile.exists()) { localFile.createNewFile(); }
+
+            InputStream inputStream = response.body().byteStream();
+            new FileManager().Stream2File(inputStream, localFile.getAbsolutePath());
+            return localFile;
+        } else {
+            throw new NetErrorException(response.code());
+        }
+    }
+
+    /**
+     * 下载文件 (异步下载)
+     */
+    public void downloadFile(String url, final File localFile, final IFileCallback callback) {
+        if (TextUtils.isEmpty(url) || localFile == null) {
+            callback.onError(-1, "url 或 localFile 参数异常");
+            return;
+        }
+
+        Request request = this.getRequest(url);
+        this.client.newCall(request).enqueue(new Callback() {
+            public void onFailure(Call call, IOException e) {
+                if (callback != null) callback.onError(-1, e.getMessage());
+            }
+
+            public void onResponse(Call call, Response response) throws IOException {
+                if (response.isSuccessful() || response.isRedirect()) {
+
+                    if (!localFile.getParentFile().exists()) { localFile.getParentFile().mkdirs(); }
+                    if (!localFile.exists()) { localFile.createNewFile(); }
+
+                    InputStream inputStream = response.body().byteStream();
+                    BufferedInputStream bis = new BufferedInputStream(inputStream);
+                    BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(localFile));
+                    byte[] bys = new byte[10240];
+                    long progress = 0;
+
+                    // start download
+                    long total = response.body().contentLength();
+                    if (callback != null) callback.onStart(total);
+
+                    int len;
+                    while((len = bis.read(bys)) != -1) {
+                        bos.write(bys, 0, len);
+                        bos.flush();
+                        progress += len;
+                        if (callback != null) callback.onProgress(progress);
+                    }
+
+                    bis.close();
+                    bos.close();
+
+                    if (callback != null) callback.onSuccess(response.code(), localFile);
+                } else {
+                    if (callback != null) callback.onError(response.code(), response.body().string());
                 }
             }
         });
@@ -184,7 +285,7 @@ public class OKHttpManager implements IOKHttpManager{
      * @param url Support http and https.
      * @return
      */
-    private Request getRequest(String url){
+    protected Request getRequest(String url){
         Request request = new Request.Builder()
                 .url(url)
                 .build();
@@ -192,15 +293,23 @@ public class OKHttpManager implements IOKHttpManager{
     }
 
     public String post(String url, String data, PostType type) throws IOException, NetErrorException {
+        if (TextUtils.isEmpty(url)) return "";
+        if (data == null) data = "";
+
         Request request = getRequest(url, data, type);
 
         Response response = client.newCall(request).execute();
-        if(response.isSuccessful()) return response.body().string();
-        else if(response.isRedirect()) return response.body().string();
+        if(response.isSuccessful() || response.isRedirect()) return response.body().string();
         else throw new NetErrorException(response.code());
     }
 
     public void post(String url, String data, PostType type, final IContentCallback callback) {
+        if (TextUtils.isEmpty(url)) {
+            callback.onError(-1, "url 为空");
+            return;
+        }
+        if (data == null) data = "";
+
         Request request = getRequest(url, data, type);
 
         client.newCall(request).enqueue(new Callback() {
@@ -211,13 +320,10 @@ public class OKHttpManager implements IOKHttpManager{
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
-                if(response.isSuccessful()) { // [200,300)
+                if (response.isSuccessful()/* [200,300) */ || response.isRedirect()/* 302 */) {
                     String message = response.body().string();
                     callback.onSuccess(response.code(), message);
-                }else if(response.isRedirect()){ // 302
-                    String message = response.body().string();
-                    callback.onSuccess(response.code(), message);
-                }else{
+                } else {
                     callback.onError(response.code(), response.body().string());
                 }
             }
@@ -231,7 +337,7 @@ public class OKHttpManager implements IOKHttpManager{
      * @param type Json
      * @return
      */
-    private Request getRequest(String url, String data, PostType type){
+    protected Request getRequest(String url, String data, PostType type){
         Request request = new Request.Builder()
                 .url(url)
                 .post(RequestBody.create(type.getType(), data))
