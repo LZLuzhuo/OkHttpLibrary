@@ -1,0 +1,3 @@
+include ':lib_okhttp'
+include ':app'
+rootProject.name = "OkHttpLibrary"
