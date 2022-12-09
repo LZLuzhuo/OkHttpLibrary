@@ -12,10 +12,13 @@
         <activity android:name=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".GetPostActivity" />
+        <activity android:name=".InterceptorActivity" />
+        <activity android:name=".BitmapActivity" />
+        <activity android:name=".FileActivity" />
     </application>
 
 </manifest>

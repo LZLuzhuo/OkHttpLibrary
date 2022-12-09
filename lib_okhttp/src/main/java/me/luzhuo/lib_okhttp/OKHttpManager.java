@@ -31,8 +31,11 @@ import java.util.concurrent.TimeUnit;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLSession;
 
+import me.luzhuo.lib_core.app.base.CoreBaseApplication;
+import me.luzhuo.lib_core.data.hashcode.HashManager;
 import me.luzhuo.lib_file.FileManager;
 import me.luzhuo.lib_okhttp.bean.PostType;
+import me.luzhuo.lib_okhttp.callback.CallbackManager;
 import me.luzhuo.lib_okhttp.callback.IBitmapCallback;
 import me.luzhuo.lib_okhttp.callback.IContentCallback;
 import me.luzhuo.lib_okhttp.callback.IFileCallback;
@@ -100,8 +103,8 @@ public class OKHttpManager implements IOKHttpManager{
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 //.cache(new Cache(new File(""), 10 * 1024 * 1024)); // 10MB
                 .connectTimeout(10, TimeUnit.SECONDS)
-                .writeTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
                 .callTimeout(30, TimeUnit.SECONDS)
                 .hostnameVerifier(new HostnameVerifier() {
                     @Override
@@ -139,8 +142,9 @@ public class OKHttpManager implements IOKHttpManager{
      * @param callback
      */
     public void get(String url, final IContentCallback callback) {
+        final CallbackManager mainCallback = CallbackManager.getInstance();
         if (TextUtils.isEmpty(url)) {
-            callback.onError(-1, "url 为空");
+            mainCallback.onError(callback, -1, "url 为空");
             return;
         }
 
@@ -149,24 +153,29 @@ public class OKHttpManager implements IOKHttpManager{
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                callback.onError(-1, e.getMessage());
+                final int code = -1;
+                final String message = e.getMessage();
+                mainCallback.onError(callback, code, message);
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
+                final int code = response.code();
+                final String message = response.body().string();
+
                 if (response.isSuccessful()/* [200,300) */ || response.isRedirect()/* 302 */) {
-                    String message = response.body().string();
-                    callback.onSuccess(response.code(), message);
+                    mainCallback.onSuccess(callback, code, message);
                 } else {
-                    callback.onError(response.code(), response.body().string());
+                    mainCallback.onError(callback, code, message);
                 }
             }
         });
     }
 
     public void getBitmap(String url, final IBitmapCallback callback){
+        final CallbackManager mainCallback = CallbackManager.getInstance();
         if (TextUtils.isEmpty(url)) {
-            callback.onError(-1, "url 路径为空");
+            mainCallback.onError(callback, -1, "url 路径为空");
             return;
         }
 
@@ -175,17 +184,22 @@ public class OKHttpManager implements IOKHttpManager{
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                callback.onError(-1, e.getMessage());
+                final int code = -1;
+                final String message = e.getMessage();
+                mainCallback.onError(callback, code, message);
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
+                final int code = response.code();
+                InputStream inputStream = response.body().byteStream();
+                final Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+                final String message = response.body().string();
+
                 if (response.isSuccessful()/* [200,300) */ || response.isRedirect()/* 302 */) {
-                    InputStream inputStream = response.body().byteStream();
-                    Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-                    callback.onSuccess(response.code(), bitmap);
+                    mainCallback.onSuccess(callback, code, bitmap);
                 } else {
-                    callback.onError(response.code(), response.body().string());
+                    mainCallback.onError(callback, code, message);
                 }
             }
         });
@@ -210,6 +224,7 @@ public class OKHttpManager implements IOKHttpManager{
 
     /**
      * 下载文件 (同步下载)
+     * 1.0.11: 增加了缓存机制, 先下载到缓存, 在转移到用户需求的空间里
      */
     public File downloadFile(String url, File localFile) throws IOException, NetErrorException {
         if (TextUtils.isEmpty(url) || localFile == null) return localFile;
@@ -219,11 +234,14 @@ public class OKHttpManager implements IOKHttpManager{
 
         if (response.isSuccessful() || response.isRedirect()) {
 
+            File tempFile = getCacheFile();
             if (!localFile.getParentFile().exists()) { localFile.getParentFile().mkdirs(); }
-            if (!localFile.exists()) { localFile.createNewFile(); }
+            if (!tempFile.getParentFile().exists()) { tempFile.getParentFile().mkdirs(); }
+            if (!tempFile.exists()) { tempFile.createNewFile(); }
 
             InputStream inputStream = response.body().byteStream();
-            new FileManager().Stream2File(inputStream, localFile.getAbsolutePath());
+            new FileManager(CoreBaseApplication.appContext).Stream2File(inputStream, tempFile.getAbsolutePath());
+            tempFile.renameTo(localFile);
             return localFile;
         } else {
             throw new NetErrorException(response.code());
@@ -232,52 +250,63 @@ public class OKHttpManager implements IOKHttpManager{
 
     /**
      * 下载文件 (异步下载)
+     * 1.0.11: 增加了缓存机制, 先下载到缓存, 在转移到用户需求的空间里
      */
     public void downloadFile(String url, final File localFile, final IFileCallback callback) {
+        final CallbackManager mainCallback = CallbackManager.getInstance();
         if (TextUtils.isEmpty(url) || localFile == null) {
-            callback.onError(-1, "url 或 localFile 参数异常");
+            mainCallback.onError(callback, -1, "url 或 localFile 参数异常");
             return;
         }
 
         Request request = this.getRequest(url);
         this.client.newCall(request).enqueue(new Callback() {
             public void onFailure(Call call, IOException e) {
-                if (callback != null) callback.onError(-1, e.getMessage());
+                final int code = -1;
+                final String message = e.getMessage();
+                mainCallback.onError(callback, code, message);
             }
 
             public void onResponse(Call call, Response response) throws IOException {
                 if (response.isSuccessful() || response.isRedirect()) {
 
+                    File tempFile = getCacheFile();
                     if (!localFile.getParentFile().exists()) { localFile.getParentFile().mkdirs(); }
-                    if (!localFile.exists()) { localFile.createNewFile(); }
+                    if (!tempFile.getParentFile().exists()) { tempFile.getParentFile().mkdirs(); }
+                    if (!tempFile.exists()) { tempFile.createNewFile(); }
 
                     InputStream inputStream = response.body().byteStream();
                     BufferedInputStream bis = new BufferedInputStream(inputStream);
-                    BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(localFile));
+                    BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(tempFile));
                     byte[] bys = new byte[10240];
                     long progress = 0;
 
                     // start download
                     long total = response.body().contentLength();
-                    if (callback != null) callback.onStart(total);
+                    mainCallback.onStart(callback, total);
 
                     int len;
                     while((len = bis.read(bys)) != -1) {
                         bos.write(bys, 0, len);
                         bos.flush();
                         progress += len;
-                        if (callback != null) callback.onProgress(progress);
+                        mainCallback.onProgress(callback, progress);
                     }
 
                     bis.close();
                     bos.close();
 
-                    if (callback != null) callback.onSuccess(response.code(), localFile);
+                    tempFile.renameTo(localFile);
+                    mainCallback.onSuccess(callback, response.code(), localFile);
                 } else {
-                    if (callback != null) callback.onError(response.code(), response.body().string());
+                    mainCallback.onError(callback, response.code(), response.body().string());
                 }
             }
         });
+    }
+
+    private File getCacheFile() {
+        return new File(new FileManager(CoreBaseApplication.appContext).getCacheDirectory() + File.separator + "downloadCache", HashManager.getInstance().getUuid());
     }
 
     /**
@@ -304,8 +333,9 @@ public class OKHttpManager implements IOKHttpManager{
     }
 
     public void post(String url, String data, PostType type, final IContentCallback callback) {
+        final CallbackManager mainCallback = CallbackManager.getInstance();
         if (TextUtils.isEmpty(url)) {
-            callback.onError(-1, "url 为空");
+            mainCallback.onError(callback, -1, "url 为空");
             return;
         }
         if (data == null) data = "";
@@ -315,16 +345,20 @@ public class OKHttpManager implements IOKHttpManager{
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                callback.onError(-1, e.getMessage());
+                final int code = -1;
+                final String message = e.getMessage();
+                mainCallback.onError(callback, code, message);
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
+                final int code = response.code();
+                final String message = response.body().string();
+
                 if (response.isSuccessful()/* [200,300) */ || response.isRedirect()/* 302 */) {
-                    String message = response.body().string();
-                    callback.onSuccess(response.code(), message);
+                    mainCallback.onSuccess(callback, code, message);
                 } else {
-                    callback.onError(response.code(), response.body().string());
+                    mainCallback.onError(callback, code, message);
                 }
             }
         });

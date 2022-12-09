@@ -1,39 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center"
-    tools:context=".MainActivity">
+    android:gravity="center">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="使用拦截器"
+        android:text="同步Get"
         android:textSize="30sp"
-        android:onClick="interceptor"/>
+        android:onClick="syncGet"/>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Get/Post请求"
+        android:text="异步get"
         android:textSize="30sp"
-        android:onClick="get_post"/>
+        android:onClick="asyncGet"/>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="下载Bitmap"
+        android:text="同步Post"
         android:textSize="30sp"
-        android:onClick="downBitmap"/>
+        android:onClick="syncPost"/>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="下载文件"
+        android:text="异步post"
         android:textSize="30sp"
-        android:onClick="downFile"/>
+        android:onClick="asyncPost"/>
 
 </androidx.appcompat.widget.LinearLayoutCompat>

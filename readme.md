@@ -3,14 +3,14 @@ Okhttp库
 # 1. 导包
 
 ```groovy
-implementation 'me.luzhuo.android:lib_okhttp:1.0.7-SNAPSHOT'
-
+implementation 'me.luzhuo.android:lib_okhttp:1.0.18'
 implementation 'com.squareup.okhttp3:okhttp:3.14.9'
+implementation 'me.luzhuo.android:lib_core:2.5.89'
 ```
 
 # 2. 使用文档
 
-https://www.yuque.com/luzhuo/library
+https://www.yuque.com/luzhuo/library/lib_okhttp
 
 # 3. 版权
 
